@@ -34,6 +34,8 @@ constexpr bool enableValidationLayers = false;
 constexpr bool enableValidationLayers = true;
 #endif
 
+enum PresentMode { FIFO, MAILBOX, IMMEDIATE };
+
 struct QueueFamilyIndices {
   std::optional<uint32_t> graphicsFamily;
   std::optional<uint32_t> presentFamily;
@@ -77,7 +79,8 @@ static std::vector<char> readFile(const std::string &filename) {
 
 class App {
 public:
-  App(std::string_view shadersDirectory) : shadersDirectory(shadersDirectory) {}
+  App(std::string_view shadersDirectory, PresentMode presentMode)
+      : shadersDirectory(shadersDirectory), presentMode(presentMode) {}
 
   void run() {
     initWindow();
@@ -103,6 +106,7 @@ private:
   VkFormat swapChainImageFormat;
   VkExtent2D swapChainExtent;
   std::vector<VkImageView> swapChainImageViews;
+  PresentMode presentMode;
 
   VkPipeline graphicsPipeline;
   VkPipelineLayout pipelineLayout;
@@ -936,6 +940,24 @@ private:
       }
     }
 
+    VkPresentModeKHR vkChosenPresentMode;
+    if (presentMode == FIFO) {
+      vkChosenPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+    } else if (presentMode == MAILBOX) {
+      vkChosenPresentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+    } else if (presentMode == IMMEDIATE) {
+      vkChosenPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+    }
+
+    for (const auto &availablePresentMode : availablePresentModes) {
+      if (availablePresentMode == vkChosenPresentMode) {
+        std::cout << "Chosen present mode is available!" << std::endl;
+        return vkChosenPresentMode;
+      }
+    }
+
+    std::cerr << "Chosen present mode is not available! FIFO will be used"
+              << std::endl;
     return VK_PRESENT_MODE_FIFO_KHR;
   }
 
@@ -1093,7 +1115,21 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  App app(shadersDirectory);
+  PresentMode presentMode = FIFO;
+  const char *pPresentModeChars = std::getenv("PRESENT_MODE");
+
+  if (pPresentModeChars != nullptr) {
+    std::string presentModeStr = pPresentModeChars;
+    if (presentModeStr == "FIFO") {
+      presentMode = FIFO;
+    } else if (presentModeStr == "MAILBOX") {
+      presentMode = MAILBOX;
+    } else if (presentModeStr == "IMMEDIATE") {
+      presentMode = IMMEDIATE;
+    }
+  }
+
+  App app(shadersDirectory, presentMode);
 
   try {
     app.run();
