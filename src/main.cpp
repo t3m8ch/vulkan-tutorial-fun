@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -6,6 +7,7 @@
 #include <array>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -56,8 +58,27 @@ template <typename T> auto enumerate(const T &container) {
   return result;
 }
 
+static std::vector<char> readFile(const std::string &filename) {
+  std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+  if (!file.is_open()) {
+    throw std::runtime_error("failed to open file!");
+  }
+
+  size_t fileSize = (size_t)file.tellg();
+  std::vector<char> buffer(fileSize);
+
+  file.seekg(0);
+  file.read(buffer.data(), fileSize);
+  file.close();
+
+  return buffer;
+}
+
 class App {
 public:
+  App(std::string_view shadersDirectory) : shadersDirectory(shadersDirectory) {}
+
   void run() {
     initWindow();
     initVulkan();
@@ -83,6 +104,8 @@ private:
   VkExtent2D swapChainExtent;
   std::vector<VkImageView> swapChainImageViews;
 
+  std::string_view shadersDirectory;
+
   void initWindow() {
     glfwInit();
 
@@ -100,6 +123,7 @@ private:
     createLogicalDevice();
     createSwapChain();
     createImageViews();
+    createGraphicsPipeline();
   }
 
   void mainLoop() {
@@ -320,6 +344,44 @@ private:
         throw std::runtime_error("failed to create image views!");
       }
     }
+  }
+
+  void createGraphicsPipeline() {
+    std::filesystem::path shadersDirectoryPath = shadersDirectory;
+
+    std::filesystem::path vertShaderFileName = "triangle.vert.spv";
+    std::filesystem::path vertShaderPath =
+        shadersDirectoryPath / vertShaderFileName;
+
+    std::filesystem::path fragShaderFileName = "triangle.frag.spv";
+    std::filesystem::path fragShaderPath =
+        shadersDirectoryPath / fragShaderFileName;
+
+    auto vertShaderCode = readFile(vertShaderPath);
+    auto fragShaderCode = readFile(fragShaderPath);
+
+    VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+    VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+    vertShaderStageInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderStageInfo.module = vertShaderModule;
+    vertShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = fragShaderModule;
+    fragShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
+                                                      fragShaderStageInfo};
+
+    vkDestroyShaderModule(device, fragShaderModule, nullptr);
+    vkDestroyShaderModule(device, vertShaderModule, nullptr);
   }
 
   void populateDebugMessengerCreateInfo(
@@ -587,6 +649,21 @@ private:
     }
   }
 
+  VkShaderModule createShaderModule(const std::vector<char> &code) {
+    VkShaderModuleCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = code.size();
+    createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
+
+    VkShaderModule shaderModule;
+    if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("failed to create shader module!");
+    }
+
+    return shaderModule;
+  }
+
   VkResult createDebugUtilsMessengerEXT(
       VkInstance instance,
       const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
@@ -651,7 +728,13 @@ private:
 };
 
 int main() {
-  App app;
+  const char *shadersDirectory = std::getenv("SHADERS_DIR");
+  if (shadersDirectory == nullptr) {
+    std::cerr << "SHADERS_DIR environment variable must be set!" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  App app(shadersDirectory);
 
   try {
     app.run();
